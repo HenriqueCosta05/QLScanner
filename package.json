@@ -1,7 +1,7 @@
 {
   "name": "qlscan",
-  "version": "0.0.13",
-  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript, Python and C#",
+  "version": "0.0.14",
+  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript.",
   "keywords": [
     "codeql",
     "code-scanning",

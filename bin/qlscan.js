@@ -11,7 +11,7 @@ import chalk from 'chalk';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const TOOL_HOME = join(process.cwd(), '.qscan-cache');
+const TOOL_HOME = join(process.cwd(), '.qlscan-cache');
 
 const argv = yargs(hideBin(process.argv))
   .command('init-hook', 'Instalação do hook de pré-commit', () => {}, async () => {
@@ -21,7 +21,7 @@ const argv = yargs(hideBin(process.argv))
       console.error('Não é um repositório Git. Por favor, verifique seu projeto e tente novamente.');
       process.exit(1);
     }
-    const stub = `#!/usr/bin/env bash\nqscan hook\n`;
+    const stub = `#!/usr/bin/env bash\nqlscan hook\n`;
     writeFileSync(hookFile, stub);
     chmodSync(hookFile, 0o755);
     console.log(chalk.green('✓ Hook de pré-commit instalado.'));
