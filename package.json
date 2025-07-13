@@ -1,0 +1,25 @@
+{
+  "name": "qlscan",
+  "version": "0.0.1",
+  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript, Python and C#",
+  "keywords": [
+    "codeql",
+    "code-scanning",
+    "security"
+  ],
+  "homepage": "https://github.com/HenriqueCosta05/QLScanner#readme",
+  "bugs": {
+    "url": "https://github.com/HenriqueCosta05/QLScanner/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HenriqueCosta05/QLScanner.git"
+  },
+  "license": "ISC",
+  "author": "Henrique Costa",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
