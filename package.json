@@ -1,6 +1,6 @@
 {
   "name": "qlscan",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript, Python and C#",
   "keywords": [
     "codeql",
@@ -22,12 +22,16 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "bin": {
+    "qlscan": "./bin/qlscan.js"
+  },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "chalk": "^5.4.1",
     "cli-progress": "^3.12.0",
     "execa": "^9.6.0",
     "node-fetch": "^3.3.2",
+    "qlscan": "^0.0.3",
     "yargs": "^18.0.0"
   }
 }
