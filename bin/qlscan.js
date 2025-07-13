@@ -21,7 +21,7 @@ const argv = yargs(hideBin(process.argv))
       console.error('Não é um repositório Git. Por favor, verifique seu projeto e tente novamente.');
       process.exit(1);
     }
-    const stub = `#!/usr/bin/env bash\nqlscan hook\n`;
+    const stub = `#!/usr/bin/env bash\n npx qlscan hook\n`;
     writeFileSync(hookFile, stub);
     chmodSync(hookFile, 0o755);
     console.log(chalk.green('✓ Hook de pré-commit instalado.'));
