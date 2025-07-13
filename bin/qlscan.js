@@ -48,6 +48,11 @@ const argv = yargs(hideBin(process.argv))
   })
   .demandCommand(1)
   .help()
+  .option('verbose', {
+    alias: 'v',
+    type: 'boolean',
+    description: 'Exibe informações detalhadas durante a execução'
+  })
   .argv;
 
 function prompt(q) {
