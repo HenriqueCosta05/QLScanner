@@ -31,6 +31,11 @@ test("infers dominant language from tracked file paths", () => {
   assert.equal(inferred, "javascript");
 });
 
+test("uses deterministic priority when language counts tie", () => {
+  const inferred = inferLanguageFromFilePaths(["src/app.py", "src/index.ts"]);
+  assert.equal(inferred, "javascript");
+});
+
 test("supported file extension pattern matches expected extensions", () => {
   const pattern = getSupportedExtensionPattern();
   assert.equal(pattern.test("foo.rb"), true);
