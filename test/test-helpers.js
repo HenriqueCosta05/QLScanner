@@ -2,7 +2,7 @@ const MAX_POLL_ATTEMPTS = 40;
 const POLL_INTERVAL_MS = 10;
 
 export async function waitForStatus(getScan, id, expected) {
-  for (let i = 0; i < MAX_POLL_ATTEMPTS; i += 1) {
+  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     const scan = await getScan(id);
     if (scan?.status === expected) return scan;
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
