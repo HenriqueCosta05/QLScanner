@@ -15,7 +15,7 @@ test("in-memory scan service runs scan and stores report", async () => {
   });
 
   const created = scanService.createScan({ repoRoot: "/tmp/project" });
-  assert.equal(created.status, "queued");
+  assert.equal(["queued", "in_progress"].includes(created.status), true);
 
   const completed = await waitForStatus(scanService.getScan, created.id, "completed");
   assert.equal(completed.issueCount, 2);

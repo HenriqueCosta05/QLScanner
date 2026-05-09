@@ -49,6 +49,13 @@ test("API exposes health and scan lifecycle endpoints", async () => {
     assert.equal(report.status, 200);
     const reportBody = await report.json();
     assert.equal(reportBody.report.total, 1);
+
+    const invalidCreate = await fetch(`${api.baseUrl}/scans`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repoRoot: "" }),
+    });
+    assert.equal(invalidCreate.status, 400);
   } finally {
     await api.close();
   }

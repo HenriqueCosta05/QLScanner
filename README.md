@@ -52,7 +52,7 @@ npm run start:api
 ### API Endpoints (`/api/v1`)
 
 - `GET /health` - health check
-- `POST /scans` - create a scan (`{ "repoRoot": "/absolute/path" }`, defaults to current directory)
+- `POST /scans` - create a scan (`{ "repoRoot": "/absolute/path" }`)
 - `GET /scans` - list in-memory scans
 - `GET /scans/:id` - get scan status
 - `GET /scans/:id/report` - get completed scan report
