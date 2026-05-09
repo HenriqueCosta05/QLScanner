@@ -15,6 +15,7 @@ QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis
 - Pre-commit integration ready
 - Optimized performance with multi-threading
 - Uses official CodeQL security and quality query suite
+- Versioned HTTP API (`/api/v1`) for external integrations
 
 ## Installation
 
@@ -35,6 +36,33 @@ The tool will:
 2. Download and manage required query packages
 3. Create and analyze a CodeQL database
 4. Generate a detailed security report in your project root
+
+Start the local HTTP API server:
+
+```bash
+qlscan server --host 127.0.0.1 --port 3000
+```
+
+You can also run it from this repository with:
+
+```bash
+npm run start:api
+```
+
+### API Endpoints (`/api/v1`)
+
+- `GET /health` - health check
+- `POST /scans` - create a scan (`{ "repoRoot": "/absolute/path" }`, defaults to current directory)
+- `GET /scans` - list in-memory scans
+- `GET /scans/:id` - get scan status
+- `GET /scans/:id/report` - get completed scan report
+
+Example:
+
+```bash
+curl http://127.0.0.1:3000/api/v1/health
+curl -X POST http://127.0.0.1:3000/api/v1/scans -H "content-type: application/json" -d '{"repoRoot":"/path/to/repo"}'
+```
 
 ## Requirements
 

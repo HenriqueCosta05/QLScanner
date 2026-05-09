@@ -1,11 +1,12 @@
 {
   "name": "qlscan",
   "version": "0.0.47",
-  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript.",
+  "description": "A zero-setup CodeQL scanner with CLI and HTTP API for JavaScript/TypeScript.",
   "keywords": [
     "codeql",
     "code-scanning",
-    "security"
+    "security",
+    "api"
   ],
   "homepage": "https://github.com/HenriqueCosta05/QLScanner#readme",
   "bugs": {
@@ -20,7 +21,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "start:api": "node ./bin/qlscan.js server"
   },
   "bin": {
     "qlscan": "./bin/qlscan.js"

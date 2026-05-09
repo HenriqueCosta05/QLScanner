@@ -8,7 +8,9 @@ import { join } from "path";
 import chalk from "chalk";
 
 import { ensureCodeQL } from "../lib/bootstrap.js";
-import { runScan } from "../lib/scan.js";
+import { runScan, runScanDetailed } from "../lib/scan.js";
+import { createInMemoryScanService } from "../lib/scan-service.js";
+import { startApiServer } from "../lib/api-server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,6 +117,43 @@ yargs(hideBin(process.argv))
         await runScan(codeqlPath, process.cwd());
       } catch (err) {
         console.error(chalk.red("✖  Scan failed:"), err.message);
+        process.exit(1);
+      }
+    },
+  )
+  .command(
+    "server",
+    "Start the QLScanner HTTP API server",
+    (cmd) =>
+      cmd
+        .option("host", {
+          type: "string",
+          default: "127.0.0.1",
+          description: "Host interface for the API server",
+        })
+        .option("port", {
+          type: "number",
+          default: 3000,
+          description: "TCP port for the API server",
+        }),
+    async (argv) => {
+      try {
+        const scanService = createInMemoryScanService({
+          executeScan: async ({ repoRoot }) => {
+            const codeqlPath = await ensureCodeQL();
+            return runScanDetailed(codeqlPath, repoRoot);
+          },
+        });
+
+        const api = await startApiServer({
+          host: argv.host,
+          port: argv.port,
+          scanService,
+        });
+
+        console.log(chalk.green(`✔  API server is running at ${api.baseUrl}`));
+      } catch (err) {
+        console.error(chalk.red("✖  API server failed:"), err.message);
         process.exit(1);
       }
     },
