@@ -9,6 +9,7 @@ import chalk from "chalk";
 
 import { ensureCodeQL } from "../lib/bootstrap.js";
 import { runScan } from "../lib/scan.js";
+import { resolveCodeQLLanguage, getSupportedCodeQLLanguageHelpText } from "../lib/codeql-languages.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,10 +110,12 @@ yargs(hideBin(process.argv))
     "scan",
     "Manually scan the current repository",
     () => {},
-    async () => {
+    async (argv) => {
       try {
         const codeqlPath = await ensureCodeQL();
-        await runScan(codeqlPath, process.cwd());
+        await runScan(codeqlPath, process.cwd(), {
+          language: argv.language,
+        });
       } catch (err) {
         console.error(chalk.red("✖  Scan failed:"), err.message);
         process.exit(1);
@@ -125,6 +128,19 @@ yargs(hideBin(process.argv))
     alias: "v",
     type: "boolean",
     description: "Show detailed output during execution",
+  })
+  .option("language", {
+    alias: "l",
+    type: "string",
+    description: "Select the CodeQL language to scan",
+  })
+  .check((argv) => {
+    if (argv.language && !resolveCodeQLLanguage(argv.language)) {
+      throw new Error(
+        `Unsupported CodeQL language: ${argv.language}. Supported languages are: ${getSupportedCodeQLLanguageHelpText()}.`,
+      );
+    }
+    return true;
   })
   .demandCommand(
     1,
