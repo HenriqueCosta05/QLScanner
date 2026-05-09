@@ -9,6 +9,7 @@ import chalk from "chalk";
 
 import { ensureCodeQL } from "../lib/bootstrap.js";
 import { runScan } from "../lib/scan.js";
+import { createApiServer } from "../lib/api-server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,6 +121,27 @@ yargs(hideBin(process.argv))
     },
   )
 
+
+  // ── serve ───────────────────────────────────────────────────────────────
+  .command(
+    "serve",
+    "Start the versioned HTTP API for scan integration",
+    () => {},
+    async (argv) => {
+      try {
+        const api = createApiServer({
+          host: argv.host,
+          port: argv.port,
+          defaultRepoRoot: argv["repo-root"],
+        });
+
+        await api.listen();
+      } catch (err) {
+        console.error(chalk.red("✖  API server failed to start:"), err.message);
+        process.exit(1);
+      }
+    },
+  )
   // ── global options ────────────────────────────────────────────────────────
   .option("verbose", {
     alias: "v",
@@ -127,6 +149,21 @@ yargs(hideBin(process.argv))
     description: "Show detailed output during execution",
   })
   .demandCommand(
+  .option("host", {
+    type: "string",
+    description: "Host to bind the HTTP API server to",
+    default: "127.0.0.1",
+  })
+  .option("port", {
+    type: "number",
+    description: "Port for the HTTP API server",
+    default: 3000,
+  })
+  .option("repo-root", {
+    type: "string",
+    description: "Default repository root used by the API server",
+    default: process.cwd(),
+  })
     1,
     chalk.red("Please specify a command. Use --help for usage."),
   )

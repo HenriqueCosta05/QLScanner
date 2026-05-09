@@ -1,7 +1,7 @@
 {
   "name": "qlscan",
   "version": "0.0.47",
-  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript.",
+  "description": "A CodeQL scanner with pre-commit and HTTP API integration points.",
   "keywords": [
     "codeql",
     "code-scanning",
@@ -20,6 +20,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "api": "qlscanner serve",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "bin": {

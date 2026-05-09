@@ -36,6 +36,32 @@ The tool will:
 3. Create and analyze a CodeQL database
 4. Generate a detailed security report in your project root
 
+### HTTP API
+
+Start the versioned HTTP API server for external integrations:
+
+```bash
+qlscan serve --port 3000 --host 127.0.0.1
+```
+
+Available endpoints:
+
+```text
+GET  /api/v1/health
+GET  /api/v1/scans
+POST /api/v1/scans
+GET  /api/v1/scans/:id
+GET  /api/v1/scans/:id/report
+```
+
+Create a scan from an external client:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/scans \
+	-H 'content-type: application/json' \
+	-d '{"repositoryRoot":"/path/to/repo"}'
+```
+
 ## Requirements
 
 - Node.js 22.x or higher
