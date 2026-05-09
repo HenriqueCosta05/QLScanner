@@ -9,6 +9,11 @@ import chalk from "chalk";
 
 import { ensureCodeQL } from "../lib/bootstrap.js";
 import { runScan } from "../lib/scan.js";
+import {
+  getSupportedExtensionPattern,
+  getSupportedLanguageLabels,
+  resolveLanguageConfig,
+} from "../lib/languages.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,9 +38,10 @@ function prompt(question) {
  * @returns {boolean}
  */
 function hasSupportedFiles(changedFiles) {
+  const pattern = getSupportedExtensionPattern();
   return changedFiles
     .split("\n")
-    .some((line) => /\.(js|ts|jsx|tsx|py|cs)$/.test(line.trim()));
+    .some((line) => pattern.test(line.trim()));
 }
 
 // ---------------------------------------------------------------------------
@@ -108,11 +114,19 @@ yargs(hideBin(process.argv))
   .command(
     "scan",
     "Manually scan the current repository",
-    () => {},
-    async () => {
+    (cmd) =>
+      cmd.option("language", {
+        alias: "l",
+        type: "string",
+        description: `Language to scan (${getSupportedLanguageLabels().join(", ")})`,
+      }),
+    async (argv) => {
       try {
+        if (argv.language) {
+          resolveLanguageConfig(argv.language);
+        }
         const codeqlPath = await ensureCodeQL();
-        await runScan(codeqlPath, process.cwd());
+        await runScan(codeqlPath, process.cwd(), argv.language);
       } catch (err) {
         console.error(chalk.red("✖  Scan failed:"), err.message);
         process.exit(1);

@@ -1,15 +1,15 @@
 # QLScanner
 
-A cross-platform CLI (Node.js) that bundles and manages CodeQL for pre-commit scanning of JavaScript.
+A cross-platform CLI (Node.js) that bundles and manages CodeQL for pre-commit scanning across multiple languages.
 
 ## Overview
 
-QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis into your JavaScript/TypeScript development workflow. It automatically manages CodeQL installation, query packages, and provides clear, actionable security reports.
+QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis into your development workflow. It automatically manages CodeQL installation, query packs, and provides clear, actionable security reports.
 
 ## Features
 
 - Zero-setup required - automatically manages CodeQL installation
-- Pre-configured security scanning for JavaScript/TypeScript
+- Pre-configured security scanning for C/C++, C#, Go, Java, JavaScript/TypeScript, Python, Ruby and Swift
 - Automatic query pack management
 - Clear, readable Markdown reports
 - Pre-commit integration ready
@@ -24,11 +24,19 @@ npm install -g qlscan
 
 ## Usage
 
-Run a security scan in your JavaScript/TypeScript project:
+Run a security scan in your project:
 
 ```bash
 qlscan scan
 ```
+
+Optionally force a specific language:
+
+```bash
+qlscan scan --language python
+```
+
+When `--language` is not provided, QLScanner infers the scan language from tracked repository files whenever possible.
 
 The tool will:
 1. Set up CodeQL if not already installed
