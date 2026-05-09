@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { createInMemoryScanService } from "../lib/scan-service.js";
 import { startApiServer } from "../lib/api-server.js";
+import { waitForStatus } from "./test-helpers.js";
 
 test("API exposes health and scan lifecycle endpoints", async () => {
   const scanService = createInMemoryScanService({
@@ -38,14 +39,11 @@ test("API exposes health and scan lifecycle endpoints", async () => {
     const listBody = await list.json();
     assert.equal(Array.isArray(listBody.scans), true);
 
-    for (let i = 0; i < 40; i += 1) {
+    await waitForStatus(async () => {
       const statusRes = await fetch(`${api.baseUrl}/scans/${created.scan.id}`);
       const statusBody = await statusRes.json();
-      if (statusBody.scan.status === "completed") {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+      return statusBody.scan;
+    }, created.scan.id, "completed");
 
     const report = await fetch(`${api.baseUrl}/scans/${created.scan.id}/report`);
     assert.equal(report.status, 200);

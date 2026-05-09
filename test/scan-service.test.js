@@ -2,15 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createInMemoryScanService } from "../lib/scan-service.js";
-
-async function waitForStatus(getScan, id, expected) {
-  for (let i = 0; i < 40; i += 1) {
-    const scan = getScan(id);
-    if (scan?.status === expected) return scan;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`Timed out waiting for status ${expected}`);
-}
+import { waitForStatus } from "./test-helpers.js";
 
 test("in-memory scan service runs scan and stores report", async () => {
   const scanService = createInMemoryScanService({

@@ -21,7 +21,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "start:api": "node ./bin/qlscan.js server"
   },
   "bin": {
