@@ -9,7 +9,7 @@ QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis
 ## Features
 
 - Zero-setup required - automatically manages CodeQL installation
-- Pre-configured security scanning for C/C++, C#, Go, Java, JavaScript/TypeScript, Python, Ruby and Swift
+- Pre-configured security scanning for C/C++, C#, Go, Java, JavaScript/TypeScript, Python, Ruby, and Swift
 - Automatic query pack management
 - Clear, readable Markdown reports
 - Pre-commit integration ready
