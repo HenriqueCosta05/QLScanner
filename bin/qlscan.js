@@ -10,6 +10,7 @@ import chalk from "chalk";
 import { ensureCodeQL } from "../lib/bootstrap.js";
 import { runScan } from "../lib/scan.js";
 import { createApiServer } from "../lib/api-server.js";
+import { buildLanguageMenu, getLanguageProfile } from "../lib/scan-profiles.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +26,37 @@ function prompt(question) {
     process.stdout.write(question);
     process.stdin.once("data", (data) => resolve(data.toString().trim()));
   });
+}
+
+async function promptLanguage(defaultLanguageId) {
+  const menu = buildLanguageMenu();
+
+  console.log(chalk.cyan("Choose the primary programming language:"));
+  for (const item of menu) {
+    console.log(`  ${item.index}. ${item.label}`);
+  }
+
+  while (true) {
+    const answer = await prompt(
+      `Select language [${defaultLanguageId ?? menu[0].id}]: `,
+    );
+
+    if (!answer) {
+      return defaultLanguageId ?? menu[0].id;
+    }
+
+    const selectedByIndex = menu.find((item) => String(item.index) === answer);
+    if (selectedByIndex) {
+      return selectedByIndex.id;
+    }
+
+    const selectedByAlias = getLanguageProfile(answer);
+    if (selectedByAlias) {
+      return selectedByAlias.id;
+    }
+
+    console.log(chalk.yellow("Invalid language selection. Try again."));
+  }
 }
 
 /**
@@ -84,8 +116,11 @@ yargs(hideBin(process.argv))
           process.exit(0);
         }
 
-        const codeqlPath = await ensureCodeQL();
-        const issueCount = await runScan(codeqlPath, process.cwd());
+        const language = await promptLanguage("javascript");
+        const codeqlPath = await ensureCodeQL({ prompt });
+        const issueCount = await runScan(codeqlPath, process.cwd(), {
+          language,
+        });
 
         if (issueCount > 0) {
           console.log(
@@ -112,8 +147,9 @@ yargs(hideBin(process.argv))
     () => {},
     async () => {
       try {
-        const codeqlPath = await ensureCodeQL();
-        await runScan(codeqlPath, process.cwd());
+        const language = await promptLanguage("javascript");
+        const codeqlPath = await ensureCodeQL({ prompt });
+        await runScan(codeqlPath, process.cwd(), { language });
       } catch (err) {
         console.error(chalk.red("✖  Scan failed:"), err.message);
         process.exit(1);
@@ -133,6 +169,7 @@ yargs(hideBin(process.argv))
           host: argv.host,
           port: argv.port,
           defaultRepoRoot: argv["repo-root"],
+          defaultLanguage: argv.language,
         });
 
         await api.listen();
@@ -148,7 +185,6 @@ yargs(hideBin(process.argv))
     type: "boolean",
     description: "Show detailed output during execution",
   })
-  .demandCommand(
   .option("host", {
     type: "string",
     description: "Host to bind the HTTP API server to",
@@ -164,9 +200,11 @@ yargs(hideBin(process.argv))
     description: "Default repository root used by the API server",
     default: process.cwd(),
   })
-    1,
-    chalk.red("Please specify a command. Use --help for usage."),
-  )
+  .option("language", {
+    type: "string",
+    description: "Primary language to use when the caller does not provide one",
+  })
+  .demandCommand(1, chalk.red("Please specify a command. Use --help for usage."))
   .strict()
   .help()
   .parse();
