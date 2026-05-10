@@ -4,7 +4,11 @@ import { existsSync, statSync } from "fs";
 
 import { ensureCodeQL } from "./bootstrap.js";
 import { runScan } from "./scan.js";
-import { getLanguageProfile, listSupportedLanguageProfiles } from "./scan-profiles.js";
+import {
+  getCodeQLMode,
+  getLanguageProfile,
+  listSupportedLanguageIds,
+} from "./scan-profiles.js";
 
 /**
  * Creates an in-memory scan manager for asynchronous execution.
@@ -30,10 +34,17 @@ export function createScanService(options = {}) {
       const repoRoot = resolve(request.repositoryRoot ?? defaultRepoRoot);
       const languageChoice = request.language ?? (requireLanguageSelection ? null : defaultLanguageId);
       const languageProfile = getLanguageProfile(languageChoice);
+      const codeqlMode = getCodeQLMode(request.codeqlMode ?? "managed");
 
       if (!languageProfile) {
         throw new Error(
-          `${requireLanguageSelection && !request.language ? "Language is required for API scan requests." : `Unsupported language: ${request.language}` } Choose one of: ${listSupportedLanguageProfiles().map((profile) => profile.id).join(", ")}.`,
+          `${requireLanguageSelection && !request.language ? "Language is required for API scan requests." : `Unsupported language: ${request.language}` } Choose one of: ${listSupportedLanguageIds().join(", ")}.`,
+        );
+      }
+
+      if (!codeqlMode) {
+        throw new Error(
+          `Unsupported CodeQL mode: ${request.codeqlMode}. Choose one of: managed, installed, update.`,
         );
       }
 
@@ -45,7 +56,7 @@ export function createScanService(options = {}) {
         repositoryRoot: repoRoot,
         language: languageProfile.id,
         languageLabel: languageProfile.label,
-        codeqlMode: request.codeqlMode ?? "managed",
+        codeqlMode: codeqlMode.id,
         status: "queued",
         totalIssues: null,
         reportPath: join(repoRoot, "codeql-results.md"),

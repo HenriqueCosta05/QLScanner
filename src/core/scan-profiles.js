@@ -42,8 +42,32 @@ const LANGUAGE_PROFILES = [
   },
 ];
 
+const CODEQL_MODES = [
+  {
+    id: "managed",
+    label: "Use QLScanner-managed CodeQL",
+    description:
+      "Downloads and keeps a managed CodeQL installation up to date.",
+  },
+  {
+    id: "installed",
+    label: "Use a CodeQL installation already available in PATH",
+    description:
+      "Reuses an existing CodeQL binary already installed on the machine.",
+  },
+  {
+    id: "update",
+    label: "Update the managed CodeQL installation to the latest version",
+    description: "Forces a refresh of the managed CodeQL bundle.",
+  },
+];
+
 export function listSupportedLanguageProfiles() {
   return LANGUAGE_PROFILES.map((profile) => ({ ...profile }));
+}
+
+export function listSupportedLanguageIds() {
+  return LANGUAGE_PROFILES.map((profile) => profile.id);
 }
 
 export function getLanguageProfile(language) {
@@ -68,4 +92,18 @@ export function buildLanguageMenu() {
     id: profile.id,
     label: profile.label,
   }));
+}
+
+export function listCodeQLModes() {
+  return CODEQL_MODES.map((mode) => ({ ...mode }));
+}
+
+export function getCodeQLMode(mode) {
+  const normalized = String(mode ?? "").trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  return CODEQL_MODES.find((item) => item.id === normalized) ?? null;
 }

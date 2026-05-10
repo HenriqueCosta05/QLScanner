@@ -3,8 +3,8 @@ import { readFileSync, existsSync } from "fs";
 import { URL } from "url";
 import chalk from "chalk";
 
-import { createScanService } from "./scan-service.js";
-import { listSupportedLanguageProfiles } from "./scan-profiles.js";
+import { createScanService } from "../core/scan-service.js";
+import { listCodeQLModes, listSupportedLanguageProfiles } from "../core/scan-profiles.js";
 
 /**
  * Creates an HTTP API server for scan orchestration.
@@ -48,20 +48,7 @@ export function createApiServer(options = {}) {
       if (request.method === "GET" && requestUrl.pathname === "/api/v1/options") {
         return sendJson(response, 200, {
           languages: listSupportedLanguageProfiles(),
-          codeqlModes: [
-            {
-              id: "managed",
-              label: "Use QLScanner-managed CodeQL",
-            },
-            {
-              id: "installed",
-              label: "Use a CodeQL installation already available in PATH",
-            },
-            {
-              id: "update",
-              label: "Update the managed CodeQL installation to the latest version",
-            },
-          ],
+          codeqlModes: listCodeQLModes(),
         });
       }
 
