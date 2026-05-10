@@ -1,7 +1,7 @@
 {
-  "name": "qlscan",
-  "version": "0.0.47",
-  "description": "A zero-setup CodeQL pre-commit scanner for JavaScript/TypeScript.",
+  "name": "qlscanner",
+  "version": "2.0.3",
+  "description": "A hybrid CodeQL scanner with CLI commands and HTTP API integration points.",
   "keywords": [
     "codeql",
     "code-scanning",
@@ -18,12 +18,21 @@
   "license": "ISC",
   "author": "Henrique Costa",
   "type": "module",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
+    "start": "node ./bin/qlscan.js serve",
+    "serve": "node ./bin/qlscan.js serve",
+    "api": "npm run serve",
+    "scan": "node ./bin/qlscan.js scan",
+    "hook": "node ./bin/qlscan.js hook",
+    "init-hook": "node ./bin/qlscan.js init-hook",
+    "cli": "node ./bin/qlscan.js",
+    "cli:dev": "node --experimental-modules ./src/cli/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "bin": {
-    "qlscan": "./bin/qlscan.js"
+    "qlscan": "./bin/qlscan.js",
+    "qlscanner": "./bin/qlscan.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
