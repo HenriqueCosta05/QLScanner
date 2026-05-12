@@ -59,6 +59,7 @@ export function createScanService(options = {}) {
         codeqlMode: codeqlMode.id,
         status: "queued",
         totalIssues: null,
+        report: null,
         reportPath: join(repoRoot, "codeql-results.md"),
         createdAt: new Date().toISOString(),
         startedAt: null,
@@ -90,11 +91,15 @@ export function createScanService(options = {}) {
       const codeqlPath = await ensureCodeQL({
         installMode: job.codeqlMode,
       });
-      const issueCount = await runScan(codeqlPath, job.repositoryRoot, {
+      const scanResult = await runScan(codeqlPath, job.repositoryRoot, {
         language: job.language,
       });
 
-      job.totalIssues = issueCount;
+      job.totalIssues = scanResult.total;
+      job.report = {
+        totalIssues: scanResult.total,
+        findings: scanResult.details,
+      };
       job.status = "completed";
       job.finishedAt = new Date().toISOString();
     } catch (error) {
@@ -111,6 +116,7 @@ function snapshotJob(job) {
     repositoryRoot: job.repositoryRoot,
     status: job.status,
     totalIssues: job.totalIssues,
+    report: job.report,
     reportPath: job.reportPath,
     createdAt: job.createdAt,
     startedAt: job.startedAt,

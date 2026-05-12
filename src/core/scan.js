@@ -33,7 +33,7 @@ const USER_CODEQL_PACKS_DIR = join(homedir(), ".codeql", "packages");
  * @param {string} repoRoot   - Absolute path to the repository root to scan.
  * @param {object} [options]
  * @param {string} [options.language] - Primary language to scan.
- * @returns {Promise<number>} The total number of issues found.
+ * @returns {Promise<{ total: number, details: ScanFinding[] }>}
  */
 export async function runScan(codeqlPath, repoRoot, options = {}) {
   const languageProfile = getLanguageProfile(options.language ?? "javascript");
@@ -62,7 +62,7 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
   writeMarkdownReport(repoRoot, dbDir, scanResult, languageProfile.label);
   printSummary(repoRoot, scanResult.total, languageProfile.label);
 
-  return scanResult.total;
+  return scanResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,18 +158,18 @@ function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
 // ---------------------------------------------------------------------------
 
 /**
- * @typedef {Object} ScanIssue
- * @property {string} name        - The rule ID.
+ * @typedef {Object} ScanFinding
+ * @property {string} id - The rule ID.
  * @property {string} description - Human-readable description.
- * @property {string} severity    - Issue severity level.
- * @property {string} [file]      - Relative file path.
- * @property {number} [line]      - Starting line number.
+ * @property {string} severity - Issue severity level.
+ * @property {{ file: string | null, affectedLines: { start: number | null, end: number | null } }} location
+ * @property {string} mitigation - Suggested mitigation for the finding.
  */
 
 /**
  * @typedef {Object} ScanResult
  * @property {number}      total   - Total number of issues found.
- * @property {ScanIssue[]} details - Per-issue detail objects.
+ * @property {ScanFinding[]} details - Per-issue detail objects.
  */
 
 /**
@@ -183,11 +183,20 @@ function parseSarifResults(sarifPath) {
   const results = raw?.runs?.[0]?.results ?? [];
 
   const details = results.map((result) => ({
-    name: result.ruleId ?? "unknown-rule",
+    id: result.ruleId ?? "unknown-rule",
     description: result.message?.text ?? "",
     severity: result.level ?? "warning",
-    file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri,
-    line: result.locations?.[0]?.physicalLocation?.region?.startLine,
+    location: {
+      file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? null,
+      affectedLines: {
+        start: result.locations?.[0]?.physicalLocation?.region?.startLine ?? null,
+        end:
+          result.locations?.[0]?.physicalLocation?.region?.endLine ??
+          result.locations?.[0]?.physicalLocation?.region?.startLine ??
+          null,
+      },
+    },
+    mitigation: buildMitigationSuggestion(result.level),
   }));
 
   return { total: details.length, details };
@@ -220,21 +229,25 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult, languageLabel) {
 
     const byFile = groupBy(
       scanResult.details,
-      (issue) => issue.file ?? "Unknown Location",
+      (issue) => issue.location.file ?? "Unknown Location",
     );
 
     for (const [file, issues] of Object.entries(byFile)) {
       lines.push(`### ${file}\n`);
       issues.forEach((issue, idx) => {
-        lines.push(`${idx + 1}. **${issue.name}**`);
+        lines.push(`${idx + 1}. **${issue.id}**`);
         if (issue.description) {
           lines.push(`   - Description: ${issue.description}`);
         }
         if (issue.severity) {
           lines.push(`   - Severity: ${issue.severity}`);
         }
-        if (issue.line) {
-          lines.push(`   - Line: ${issue.line}`);
+        if (issue.location.affectedLines.start) {
+          const { start, end } = issue.location.affectedLines;
+          lines.push(`   - Affected lines: ${start}${end && end !== start ? `-${end}` : ""}`);
+        }
+        if (issue.mitigation) {
+          lines.push(`   - Mitigation: ${issue.mitigation}`);
         }
         lines.push("");
       });
@@ -254,6 +267,18 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult, languageLabel) {
   );
 
   writeFileSync(mdPath, lines.join("\n"), "utf8");
+}
+
+function buildMitigationSuggestion(severity) {
+  if (severity === "error") {
+    return "Review the vulnerable code path and apply the recommended CodeQL fix before release.";
+  }
+
+  if (severity === "warning") {
+    return "Inspect the affected line and prefer a safer API or additional validation.";
+  }
+
+  return "Validate the surrounding logic and apply the appropriate CodeQL guidance.";
 }
 
 // ---------------------------------------------------------------------------

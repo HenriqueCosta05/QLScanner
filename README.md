@@ -62,7 +62,9 @@ GET  /api/v1/scans/:id
 GET  /api/v1/scans/:id/report
 ```
 
-`GET /api/v1/options` returns the supported languages and CodeQL modes. `POST /api/v1/scans` requires a `language` field and accepts an optional `codeqlMode` field.
+All JSON endpoints return a common envelope with the shape `{ "success": boolean, "data": Array }`.
+
+`GET /api/v1/options` returns the supported languages and CodeQL modes. `POST /api/v1/scans` requires a `language` field and accepts an optional `codeqlMode` field. `GET /api/v1/scans/:id/report` returns the structured findings array, including severity, affected lines, and mitigation guidance.
 
 Create a scan from an external client:
 

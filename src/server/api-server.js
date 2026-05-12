@@ -1,5 +1,4 @@
 import { createServer } from "http";
-import { readFileSync, existsSync } from "fs";
 import { URL } from "url";
 import chalk from "chalk";
 
@@ -40,9 +39,7 @@ export function createApiServer(options = {}) {
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/api/v1/scans") {
-        return sendJson(response, 200, {
-          scans: service.listScans(),
-        });
+        return sendJson(response, 200, service.listScans());
       }
 
       if (request.method === "GET" && requestUrl.pathname === "/api/v1/options") {
@@ -69,35 +66,30 @@ export function createApiServer(options = {}) {
         const job = service.getScan(scanId);
 
         if (!job) {
-          return sendJson(response, 404, {
-            error: "Scan not found",
+          return sendErrorJson(response, 404, "Scan not found", {
             scanId,
           });
         }
 
         if (requestUrl.pathname.endsWith("/report")) {
-          if (!existsSync(job.reportPath)) {
-            return sendJson(response, 409, {
-              error: "Scan report is not available yet",
+          if (!job.report) {
+            return sendErrorJson(response, 409, "Scan report is not available yet", {
               scanId,
               status: job.status,
             });
           }
 
-          return sendText(response, 200, readFileSync(job.reportPath, "utf8"), "text/markdown; charset=utf-8");
+          return sendJson(response, 200, job.report.findings);
         }
 
         return sendJson(response, 200, job);
       }
 
-      return sendJson(response, 404, {
-        error: "Route not found",
+      return sendErrorJson(response, 404, "Route not found", {
         path: requestUrl.pathname,
       });
     } catch (error) {
-      return sendJson(response, 400, {
-        error: error?.message ?? String(error),
-      });
+      return sendErrorJson(response, 400, error?.message ?? String(error));
     }
   });
 
@@ -148,12 +140,30 @@ function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
   });
-  response.end(`${JSON.stringify(payload, null, 2)}\n`);
+  response.end(`${JSON.stringify({ success: true, data: normalizeData(payload) }, null, 2)}\n`);
 }
 
-function sendText(response, statusCode, text, contentType) {
+function sendErrorJson(response, statusCode, message, context = {}) {
   response.writeHead(statusCode, {
-    "content-type": contentType,
+    "content-type": "application/json; charset=utf-8",
   });
-  response.end(text);
+  response.end(
+    `${JSON.stringify(
+      {
+        success: false,
+        data: [
+          {
+            message,
+            ...context,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function normalizeData(payload) {
+  return Array.isArray(payload) ? payload : [payload];
 }
