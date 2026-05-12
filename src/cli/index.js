@@ -53,6 +53,17 @@ export async function createCLI(args = hideBin(process.argv)) {
       type: "string",
       description: "Primary language to use when the caller does not provide one",
     })
+    .option("queries", {
+      type: "string",
+      array: true,
+      description: "Custom CodeQL query file paths (.ql or .qls) to run",
+    })
+    .option("queries-mode", {
+      type: "string",
+      choices: ["append", "replace"],
+      default: "append",
+      description: "Whether custom queries complement or replace the default suite",
+    })
     .demandCommand(1, chalk.red("Please specify a command. Use --help for usage."))
     .strict()
     .help()

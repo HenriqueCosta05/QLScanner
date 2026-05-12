@@ -1,9 +1,10 @@
 import { execFileSync } from "child_process";
-import { join } from "path";
+import { resolve, join, isAbsolute, dirname } from "path";
 import { homedir } from "os";
 import {
   mkdirSync,
   existsSync,
+  statSync,
   readFileSync,
   appendFileSync,
   writeFileSync,
@@ -33,7 +34,7 @@ const USER_CODEQL_PACKS_DIR = join(homedir(), ".codeql", "packages");
  * @param {string} repoRoot   - Absolute path to the repository root to scan.
  * @param {object} [options]
  * @param {string} [options.language] - Primary language to scan.
- * @returns {Promise<number>} The total number of issues found.
+ * @returns {Promise<{ total: number, details: ScanFinding[] }>}
  */
 export async function runScan(codeqlPath, repoRoot, options = {}) {
   const languageProfile = getLanguageProfile(options.language ?? "javascript");
@@ -43,6 +44,14 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
       `Unsupported language: ${options.language}. Choose one of: javascript, python, java, csharp, go.`,
     );
   }
+
+  const customQueries = normalizeCustomQueries(
+    repoRoot,
+    options.customQueries ?? options.queries,
+  );
+  const customQueriesMode = normalizeCustomQueriesMode(
+    options.customQueriesMode ?? options.queriesMode,
+  );
 
   ensureGitignoreEntry(repoRoot);
 
@@ -54,7 +63,12 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
   createDatabase(codeqlPath, dbDir, repoRoot, languageProfile.codeqlLanguage);
 
   const sarifPath = join(repoRoot, "codeql-results.sarif");
-  runAnalysis(codeqlPath, dbDir, sarifPath, languageProfile.querySuite);
+  runAnalysis(
+    codeqlPath,
+    dbDir,
+    sarifPath,
+    buildAnalysisQueries(languageProfile.querySuite, customQueries, customQueriesMode),
+  );
 
   const scanResult = parseSarifResults(sarifPath);
   safeUnlink(sarifPath);
@@ -62,7 +76,7 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
   writeMarkdownReport(repoRoot, dbDir, scanResult, languageProfile.label);
   printSummary(repoRoot, scanResult.total, languageProfile.label);
 
-  return scanResult.total;
+  return scanResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,8 +138,9 @@ function createDatabase(codeqlPath, dbDir, sourceRoot, codeqlLanguage) {
  * @param {string} dbDir      - Directory of the CodeQL database.
  * @param {string} sarifPath  - Output path for the SARIF results file.
  * @param {string} querySuite - CodeQL query suite to run.
+ * @param {string[]} querySpecs - CodeQL query suite(s) or custom query file paths to run.
  */
-function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
+function runAnalysis(codeqlPath, dbDir, sarifPath, querySpecs) {
   console.log(chalk.blue("🔍  Running security analysis…"));
 
   try {
@@ -141,7 +156,7 @@ function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
         "--threads=2",
         "--additional-packs",
         USER_CODEQL_PACKS_DIR,
-        querySuite,
+        ...querySpecs,
       ],
       {
         stdio: "inherit",
@@ -153,23 +168,109 @@ function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
   }
 }
 
+function buildAnalysisQueries(defaultQuerySuite, customQueries, customQueriesMode) {
+  if (customQueries.length === 0) {
+    return [defaultQuerySuite];
+  }
+
+  if (customQueriesMode === "replace") {
+    return customQueries;
+  }
+
+  return [defaultQuerySuite, ...customQueries];
+}
+
+function normalizeCustomQueries(repoRoot, queries) {
+  const packRoots = toQueryList(queries)
+    .map((query) => resolveCustomQueryPackRoot(repoRoot, query))
+    .filter(Boolean);
+
+  return [...new Set(packRoots)];
+}
+
+function normalizeCustomQueriesMode(mode) {
+  const normalized = String(mode ?? "append").trim().toLowerCase();
+
+  if (!normalized) {
+    return "append";
+  }
+
+  if (normalized === "append" || normalized === "replace") {
+    return normalized;
+  }
+
+  throw new Error(`Unsupported custom queries mode: ${mode}. Choose one of: append, replace.`);
+}
+
+function resolveCustomQueryPackRoot(repoRoot, queryPath) {
+  const cleanedPath = String(queryPath ?? "").trim();
+
+  if (!cleanedPath) {
+    return null;
+  }
+
+  const resolvedPath = isAbsolute(cleanedPath) ? cleanedPath : resolve(repoRoot, cleanedPath);
+  if (!existsSync(resolvedPath)) {
+    throw new Error(`Custom query path not found: ${cleanedPath}`);
+  }
+
+  const initialDirectory = statSync(resolvedPath).isDirectory() ? resolvedPath : dirname(resolvedPath);
+  const packRoot = findPackRoot(initialDirectory);
+
+  if (!packRoot) {
+    throw new Error(`Unable to locate a qlpack.yml for custom query path: ${cleanedPath}`);
+  }
+
+  return packRoot;
+}
+
+function findPackRoot(startDirectory) {
+  let currentDirectory = startDirectory;
+
+  while (true) {
+    const qlpackPath = join(currentDirectory, "qlpack.yml");
+    if (existsSync(qlpackPath) && statSync(qlpackPath).isFile()) {
+      return currentDirectory;
+    }
+
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      return null;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+}
+
+function toQueryList(queries) {
+  if (Array.isArray(queries)) {
+    return queries.flatMap((query) => String(query ?? "").split(","));
+  }
+
+  if (typeof queries === "string") {
+    return queries.split(",");
+  }
+
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Result parsing
 // ---------------------------------------------------------------------------
 
 /**
- * @typedef {Object} ScanIssue
- * @property {string} name        - The rule ID.
+ * @typedef {Object} ScanFinding
+ * @property {string} id - The rule ID.
  * @property {string} description - Human-readable description.
- * @property {string} severity    - Issue severity level.
- * @property {string} [file]      - Relative file path.
- * @property {number} [line]      - Starting line number.
+ * @property {string} severity - Issue severity level.
+ * @property {{ file: string | null, affectedLines: { start: number | null, end: number | null } }} location
+ * @property {string} mitigation - Suggested mitigation for the finding.
  */
 
 /**
  * @typedef {Object} ScanResult
  * @property {number}      total   - Total number of issues found.
- * @property {ScanIssue[]} details - Per-issue detail objects.
+ * @property {ScanFinding[]} details - Per-issue detail objects.
  */
 
 /**
@@ -183,11 +284,20 @@ function parseSarifResults(sarifPath) {
   const results = raw?.runs?.[0]?.results ?? [];
 
   const details = results.map((result) => ({
-    name: result.ruleId ?? "unknown-rule",
+    id: result.ruleId ?? "unknown-rule",
     description: result.message?.text ?? "",
     severity: result.level ?? "warning",
-    file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri,
-    line: result.locations?.[0]?.physicalLocation?.region?.startLine,
+    location: {
+      file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? null,
+      affectedLines: {
+        start: result.locations?.[0]?.physicalLocation?.region?.startLine ?? null,
+        end:
+          result.locations?.[0]?.physicalLocation?.region?.endLine ??
+          result.locations?.[0]?.physicalLocation?.region?.startLine ??
+          null,
+      },
+    },
+    mitigation: buildMitigationSuggestion(result.level),
   }));
 
   return { total: details.length, details };
@@ -220,21 +330,25 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult, languageLabel) {
 
     const byFile = groupBy(
       scanResult.details,
-      (issue) => issue.file ?? "Unknown Location",
+      (issue) => issue.location.file ?? "Unknown Location",
     );
 
     for (const [file, issues] of Object.entries(byFile)) {
       lines.push(`### ${file}\n`);
       issues.forEach((issue, idx) => {
-        lines.push(`${idx + 1}. **${issue.name}**`);
+        lines.push(`${idx + 1}. **${issue.id}**`);
         if (issue.description) {
           lines.push(`   - Description: ${issue.description}`);
         }
         if (issue.severity) {
           lines.push(`   - Severity: ${issue.severity}`);
         }
-        if (issue.line) {
-          lines.push(`   - Line: ${issue.line}`);
+        if (issue.location.affectedLines.start) {
+          const { start, end } = issue.location.affectedLines;
+          lines.push(`   - Affected lines: ${start}${end && end !== start ? `-${end}` : ""}`);
+        }
+        if (issue.mitigation) {
+          lines.push(`   - Mitigation: ${issue.mitigation}`);
         }
         lines.push("");
       });
@@ -254,6 +368,18 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult, languageLabel) {
   );
 
   writeFileSync(mdPath, lines.join("\n"), "utf8");
+}
+
+function buildMitigationSuggestion(severity) {
+  if (severity === "error") {
+    return "Review the vulnerable code path and apply the recommended CodeQL fix before release.";
+  }
+
+  if (severity === "warning") {
+    return "Inspect the affected line and prefer a safer API or additional validation.";
+  }
+
+  return "Validate the surrounding logic and apply the appropriate CodeQL guidance.";
 }
 
 // ---------------------------------------------------------------------------
