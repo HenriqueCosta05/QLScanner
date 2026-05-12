@@ -1,9 +1,10 @@
 import { execFileSync } from "child_process";
-import { join } from "path";
+import { resolve, join, isAbsolute, dirname } from "path";
 import { homedir } from "os";
 import {
   mkdirSync,
   existsSync,
+  statSync,
   readFileSync,
   appendFileSync,
   writeFileSync,
@@ -44,6 +45,14 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
     );
   }
 
+  const customQueries = normalizeCustomQueries(
+    repoRoot,
+    options.customQueries ?? options.queries,
+  );
+  const customQueriesMode = normalizeCustomQueriesMode(
+    options.customQueriesMode ?? options.queriesMode,
+  );
+
   ensureGitignoreEntry(repoRoot);
 
   const cacheDir = join(repoRoot, ".qlscan-cache");
@@ -54,7 +63,12 @@ export async function runScan(codeqlPath, repoRoot, options = {}) {
   createDatabase(codeqlPath, dbDir, repoRoot, languageProfile.codeqlLanguage);
 
   const sarifPath = join(repoRoot, "codeql-results.sarif");
-  runAnalysis(codeqlPath, dbDir, sarifPath, languageProfile.querySuite);
+  runAnalysis(
+    codeqlPath,
+    dbDir,
+    sarifPath,
+    buildAnalysisQueries(languageProfile.querySuite, customQueries, customQueriesMode),
+  );
 
   const scanResult = parseSarifResults(sarifPath);
   safeUnlink(sarifPath);
@@ -124,8 +138,9 @@ function createDatabase(codeqlPath, dbDir, sourceRoot, codeqlLanguage) {
  * @param {string} dbDir      - Directory of the CodeQL database.
  * @param {string} sarifPath  - Output path for the SARIF results file.
  * @param {string} querySuite - CodeQL query suite to run.
+ * @param {string[]} querySpecs - CodeQL query suite(s) or custom query file paths to run.
  */
-function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
+function runAnalysis(codeqlPath, dbDir, sarifPath, querySpecs) {
   console.log(chalk.blue("🔍  Running security analysis…"));
 
   try {
@@ -141,7 +156,7 @@ function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
         "--threads=2",
         "--additional-packs",
         USER_CODEQL_PACKS_DIR,
-        querySuite,
+        ...querySpecs,
       ],
       {
         stdio: "inherit",
@@ -151,6 +166,92 @@ function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
   } catch (err) {
     throw new Error(`Analysis failed: ${err.message}`);
   }
+}
+
+function buildAnalysisQueries(defaultQuerySuite, customQueries, customQueriesMode) {
+  if (customQueries.length === 0) {
+    return [defaultQuerySuite];
+  }
+
+  if (customQueriesMode === "replace") {
+    return customQueries;
+  }
+
+  return [defaultQuerySuite, ...customQueries];
+}
+
+function normalizeCustomQueries(repoRoot, queries) {
+  const packRoots = toQueryList(queries)
+    .map((query) => resolveCustomQueryPackRoot(repoRoot, query))
+    .filter(Boolean);
+
+  return [...new Set(packRoots)];
+}
+
+function normalizeCustomQueriesMode(mode) {
+  const normalized = String(mode ?? "append").trim().toLowerCase();
+
+  if (!normalized) {
+    return "append";
+  }
+
+  if (normalized === "append" || normalized === "replace") {
+    return normalized;
+  }
+
+  throw new Error(`Unsupported custom queries mode: ${mode}. Choose one of: append, replace.`);
+}
+
+function resolveCustomQueryPackRoot(repoRoot, queryPath) {
+  const cleanedPath = String(queryPath ?? "").trim();
+
+  if (!cleanedPath) {
+    return null;
+  }
+
+  const resolvedPath = isAbsolute(cleanedPath) ? cleanedPath : resolve(repoRoot, cleanedPath);
+  if (!existsSync(resolvedPath)) {
+    throw new Error(`Custom query path not found: ${cleanedPath}`);
+  }
+
+  const initialDirectory = statSync(resolvedPath).isDirectory() ? resolvedPath : dirname(resolvedPath);
+  const packRoot = findPackRoot(initialDirectory);
+
+  if (!packRoot) {
+    throw new Error(`Unable to locate a qlpack.yml for custom query path: ${cleanedPath}`);
+  }
+
+  return packRoot;
+}
+
+function findPackRoot(startDirectory) {
+  let currentDirectory = startDirectory;
+
+  while (true) {
+    const qlpackPath = join(currentDirectory, "qlpack.yml");
+    if (existsSync(qlpackPath) && statSync(qlpackPath).isFile()) {
+      return currentDirectory;
+    }
+
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      return null;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+}
+
+function toQueryList(queries) {
+  if (Array.isArray(queries)) {
+    return queries.flatMap((query) => String(query ?? "").split(","));
+  }
+
+  if (typeof queries === "string") {
+    return queries.split(",");
+  }
+
+  return [];
 }
 
 // ---------------------------------------------------------------------------

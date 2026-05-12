@@ -46,6 +46,8 @@ export function createApiServer(options = {}) {
         return sendJson(response, 200, {
           languages: listSupportedLanguageProfiles(),
           codeqlModes: listCodeQLModes(),
+          customQueryModes: ["append", "replace"],
+          supportedCustomQueryExtensions: [".ql", ".qls"],
         });
       }
 
@@ -55,6 +57,8 @@ export function createApiServer(options = {}) {
           repositoryRoot: body.repositoryRoot,
           language: body.language,
           codeqlMode: body.codeqlMode,
+          customQueries: body.customQueries ?? body.queries,
+          customQueriesMode: body.customQueriesMode ?? body.queriesMode,
         });
 
         return sendJson(response, 202, job);

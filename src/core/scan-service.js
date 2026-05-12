@@ -57,6 +57,10 @@ export function createScanService(options = {}) {
         language: languageProfile.id,
         languageLabel: languageProfile.label,
         codeqlMode: codeqlMode.id,
+        customQueries: normalizeCustomQueries(request.customQueries ?? request.queries),
+        customQueriesMode: normalizeCustomQueriesMode(
+          request.customQueriesMode ?? request.queriesMode,
+        ),
         status: "queued",
         totalIssues: null,
         report: null,
@@ -93,6 +97,8 @@ export function createScanService(options = {}) {
       });
       const scanResult = await runScan(codeqlPath, job.repositoryRoot, {
         language: job.language,
+        customQueries: job.customQueries,
+        customQueriesMode: job.customQueriesMode,
       });
 
       job.totalIssues = scanResult.total;
@@ -125,6 +131,8 @@ function snapshotJob(job) {
     language: job.language,
     languageLabel: job.languageLabel,
     codeqlMode: job.codeqlMode,
+    customQueries: job.customQueries,
+    customQueriesMode: job.customQueriesMode,
   };
 }
 
@@ -132,4 +140,30 @@ function validateRepositoryRoot(repoRoot) {
   if (!existsSync(repoRoot) || !statSync(repoRoot).isDirectory()) {
     throw new Error(`Repository root not found or not a directory: ${repoRoot}`);
   }
+}
+
+function normalizeCustomQueries(queries) {
+  if (Array.isArray(queries)) {
+    return queries.flatMap((query) => String(query ?? "").split(",")).filter(Boolean);
+  }
+
+  if (typeof queries === "string") {
+    return queries.split(",").map((query) => query.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+function normalizeCustomQueriesMode(mode) {
+  const normalized = String(mode ?? "append").trim().toLowerCase();
+
+  if (!normalized) {
+    return "append";
+  }
+
+  if (normalized === "append" || normalized === "replace") {
+    return normalized;
+  }
+
+  throw new Error(`Unsupported custom queries mode: ${mode}. Choose one of: append, replace.`);
 }

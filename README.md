@@ -37,6 +37,14 @@ qlscanner scan
 
 The CLI will ask you to choose the primary language before the scan starts.
 
+You can also run custom CodeQL queries alongside the default query suite for the selected language:
+
+```bash
+qlscanner scan --language javascript --queries ./test/queries/javascript/js-eval-call.ql --queries ./test/queries/javascript/js-innerhtml-assignment.ql --queries-mode append
+```
+
+Use `--queries-mode replace` if you want the custom queries to run instead of the default suite.
+
 The tool will:
 1. Set up CodeQL if not already installed
 2. Download and manage required query packages
@@ -64,15 +72,17 @@ GET  /api/v1/scans/:id/report
 
 All JSON endpoints return a common envelope with the shape `{ "success": boolean, "data": Array }`.
 
-`GET /api/v1/options` returns the supported languages and CodeQL modes. `POST /api/v1/scans` requires a `language` field and accepts an optional `codeqlMode` field. `GET /api/v1/scans/:id/report` returns the structured findings array, including severity, affected lines, and mitigation guidance.
+`GET /api/v1/options` returns the supported languages, CodeQL modes, and custom query execution modes. `POST /api/v1/scans` requires a `language` field and accepts optional `codeqlMode`, `customQueries`, and `customQueriesMode` fields. `GET /api/v1/scans/:id/report` returns the structured findings array, including severity, affected lines, and mitigation guidance.
 
 Create a scan from an external client:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/v1/scans \
 	-H 'content-type: application/json' \
-	-d '{"repositoryRoot":"/path/to/repo","language":"javascript","codeqlMode":"managed"}'
+	-d '{"repositoryRoot":"/path/to/repo","language":"javascript","codeqlMode":"managed","customQueries":["./test/queries/javascript/js-eval-call.ql","./test/queries/javascript/js-innerhtml-assignment.ql"],"customQueriesMode":"append"}'
 ```
+
+If `customQueriesMode` is set to `append`, QLScanner runs the default suite for the selected language and then applies the custom queries. If it is set to `replace`, only the custom queries are executed.
 
 ### Programmatic Usage
 
