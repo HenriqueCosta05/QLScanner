@@ -1,25 +1,22 @@
 import { execFileSync } from "child_process";
-import { join } from "path";
+import { dirname, join } from "path";
 import { homedir } from "os";
 import {
   mkdirSync,
   existsSync,
   readFileSync,
-  appendFileSync,
   writeFileSync,
   unlinkSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
 } from "fs";
 import chalk from "chalk";
 
+import { getLanguageProfile } from "./scan-profiles.js";
+
 /** Directory where CodeQL stores downloaded query packs. */
 const USER_CODEQL_PACKS_DIR = join(homedir(), ".codeql", "packages");
-
-/** Name of the CodeQL query suite used for analysis. */
-const QUERY_SUITE =
-  "codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls";
-
-/** Query pack to download before analysis. */
-const QUERY_PACK = "codeql/javascript-queries@latest";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -36,28 +33,47 @@ const QUERY_PACK = "codeql/javascript-queries@latest";
  *
  * @param {string} codeqlPath - Absolute path to the `codeql` binary.
  * @param {string} repoRoot   - Absolute path to the repository root to scan.
- * @returns {Promise<number>} The total number of issues found.
+ * @param {object} [options]
+ * @param {string} [options.language] - Primary language to scan.
+ * @returns {Promise<{ total: number, details: ScanFinding[] }>}
  */
-export async function runScan(codeqlPath, repoRoot) {
+export async function runScan(codeqlPath, repoRoot, options = {}) {
+  const languageProfile = getLanguageProfile(options.language ?? "javascript");
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+
+  if (!languageProfile) {
+    throw new Error(
+      `Unsupported language: ${options.language}. Choose one of: javascript, python, java, csharp, go.`,
+    );
+  }
+
+  onProgress?.({ stage: "preparing", message: "Preparing scan environment..." });
   ensureGitignoreEntry(repoRoot);
 
   const cacheDir = join(repoRoot, ".qlscan-cache");
   const dbDir = join(cacheDir, "db");
   mkdirSync(cacheDir, { recursive: true });
 
-  downloadQueryPack(codeqlPath);
-  createDatabase(codeqlPath, dbDir, repoRoot);
+  onProgress?.({ stage: "downloading", message: "Downloading query pack..." });
+  downloadQueryPack(codeqlPath, languageProfile.queryPack);
 
+  onProgress?.({ stage: "database", message: "Creating CodeQL database..." });
+  createDatabase(codeqlPath, dbDir, repoRoot, languageProfile.codeqlLanguage);
+
+  onProgress?.({ stage: "analyzing", message: "Running security analysis..." });
   const sarifPath = join(repoRoot, "codeql-results.sarif");
-  runAnalysis(codeqlPath, dbDir, sarifPath);
+  runAnalysis(codeqlPath, dbDir, sarifPath, languageProfile.querySuite);
 
+  onProgress?.({ stage: "parsing", message: "Parsing results..." });
   const scanResult = parseSarifResults(sarifPath);
   safeUnlink(sarifPath);
 
-  writeMarkdownReport(repoRoot, dbDir, scanResult);
-  printSummary(repoRoot, scanResult.total);
+  onProgress?.({ stage: "reporting", message: "Generating report..." });
+  writeMarkdownReport(repoRoot, dbDir, scanResult, languageProfile.label);
+  printSummary(repoRoot, scanResult.total, languageProfile.label);
 
-  return scanResult.total;
+  onProgress?.({ stage: "completed", message: "Scan completed" });
+  return scanResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,12 +85,13 @@ export async function runScan(codeqlPath, repoRoot) {
  * Uses the `codeql pack download` command.
  *
  * @param {string} codeqlPath - Absolute path to the `codeql` binary.
+ * @param {string} queryPack - CodeQL query pack to download.
  */
-function downloadQueryPack(codeqlPath) {
+function downloadQueryPack(codeqlPath, queryPack) {
   console.log(chalk.blue("⬇  Downloading CodeQL query pack…"));
 
   try {
-    execFileSync(codeqlPath, ["pack", "download", QUERY_PACK], {
+    execFileSync(codeqlPath, ["pack", "download", queryPack], {
       stdio: "inherit",
       env: { ...process.env, CODEQL_ENABLE_NETWORK_REQUESTS: "true" },
     });
@@ -90,8 +107,9 @@ function downloadQueryPack(codeqlPath) {
  * @param {string} codeqlPath - Absolute path to the `codeql` binary.
  * @param {string} dbDir      - Directory where the database will be created.
  * @param {string} sourceRoot - Root of the source tree to analyze.
+ * @param {string} codeqlLanguage - CodeQL language identifier.
  */
-function createDatabase(codeqlPath, dbDir, sourceRoot) {
+function createDatabase(codeqlPath, dbDir, sourceRoot, codeqlLanguage) {
   console.log(chalk.blue("🗄  Creating CodeQL database…"));
 
   execFileSync(
@@ -100,7 +118,7 @@ function createDatabase(codeqlPath, dbDir, sourceRoot) {
       "database",
       "create",
       dbDir,
-      "--language=javascript",
+      `--language=${codeqlLanguage}`,
       "--source-root",
       sourceRoot,
       "--overwrite",
@@ -116,8 +134,9 @@ function createDatabase(codeqlPath, dbDir, sourceRoot) {
  * @param {string} codeqlPath - Absolute path to the `codeql` binary.
  * @param {string} dbDir      - Directory of the CodeQL database.
  * @param {string} sarifPath  - Output path for the SARIF results file.
+ * @param {string} querySuite - CodeQL query suite to run.
  */
-function runAnalysis(codeqlPath, dbDir, sarifPath) {
+function runAnalysis(codeqlPath, dbDir, sarifPath, querySuite) {
   console.log(chalk.blue("🔍  Running security analysis…"));
 
   try {
@@ -133,7 +152,7 @@ function runAnalysis(codeqlPath, dbDir, sarifPath) {
         "--threads=2",
         "--additional-packs",
         USER_CODEQL_PACKS_DIR,
-        QUERY_SUITE,
+        querySuite,
       ],
       {
         stdio: "inherit",
@@ -150,18 +169,20 @@ function runAnalysis(codeqlPath, dbDir, sarifPath) {
 // ---------------------------------------------------------------------------
 
 /**
- * @typedef {Object} ScanIssue
- * @property {string} name        - The rule ID.
- * @property {string} description - Human-readable description.
- * @property {string} severity    - Issue severity level.
- * @property {string} [file]      - Relative file path.
- * @property {number} [line]      - Starting line number.
+ * @typedef {Object} ScanFinding
+ * @property {string} id - The rule ID.
+ * @property {string} description - Short human-readable description.
+ * @property {string} extendedDescription - Detailed description (GitHub Actions style).
+ * @property {string} severity - Issue severity level.
+ * @property {{ file: string | null, affectedLines: { start: number | null, end: number | null } }} location
+ * @property {string} mitigation - Suggested mitigation for the finding.
+ * @property {string} rule - Human-readable rule name.
  */
 
 /**
  * @typedef {Object} ScanResult
  * @property {number}      total   - Total number of issues found.
- * @property {ScanIssue[]} details - Per-issue detail objects.
+ * @property {ScanFinding[]} details - Per-issue detail objects.
  */
 
 /**
@@ -173,14 +194,33 @@ function runAnalysis(codeqlPath, dbDir, sarifPath) {
 function parseSarifResults(sarifPath) {
   const raw = JSON.parse(readFileSync(sarifPath, "utf8"));
   const results = raw?.runs?.[0]?.results ?? [];
+  const rules = raw?.runs?.[0]?.tool?.driver?.rules ?? [];
+  const ruleMap = new Map(rules.map((rule) => [rule.id, rule]));
 
-  const details = results.map((result) => ({
-    name: result.ruleId ?? "unknown-rule",
-    description: result.message?.text ?? "",
-    severity: result.level ?? "warning",
-    file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri,
-    line: result.locations?.[0]?.physicalLocation?.region?.startLine,
-  }));
+  const details = results.map((result) => {
+    const rule = ruleMap.get(result.ruleId);
+    const extendedMessage = rule?.fullDescription?.text || rule?.help?.text || "";
+    const ruleName = rule?.name || result.ruleId || "Unknown Rule";
+
+    return {
+      id: result.ruleId ?? "unknown-rule",
+      rule: ruleName,
+      description: result.message?.text ?? "",
+      extendedDescription: extendedMessage,
+      severity: result.level ?? "warning",
+      location: {
+        file: result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ?? null,
+        affectedLines: {
+          start: result.locations?.[0]?.physicalLocation?.region?.startLine ?? null,
+          end:
+            result.locations?.[0]?.physicalLocation?.region?.endLine ??
+            result.locations?.[0]?.physicalLocation?.region?.startLine ??
+            null,
+        },
+      },
+      mitigation: buildMitigationSuggestion(result.level),
+    };
+  });
 
   return { total: details.length, details };
 }
@@ -196,8 +236,9 @@ function parseSarifResults(sarifPath) {
  * @param {string}     repoRoot   - Repository root path.
  * @param {string}     dbDir      - CodeQL database directory (included in report).
  * @param {ScanResult} scanResult - Parsed scan results.
+ * @param {string} languageLabel - Human-readable language label.
  */
-function writeMarkdownReport(repoRoot, dbDir, scanResult) {
+function writeMarkdownReport(repoRoot, dbDir, scanResult, languageLabel) {
   const mdPath = join(repoRoot, "codeql-results.md");
   const lines = [
     "# CodeQL Security Scan Results\n",
@@ -209,20 +250,33 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult) {
   if (scanResult.total > 0) {
     lines.push("## Security Issues Found\n");
 
-    // Group issues by file for readability
     const byFile = groupBy(
       scanResult.details,
-      (issue) => issue.file ?? "Unknown Location",
+      (issue) => issue.location.file ?? "Unknown Location",
     );
 
     for (const [file, issues] of Object.entries(byFile)) {
       lines.push(`### ${file}\n`);
       issues.forEach((issue, idx) => {
-        lines.push(`${idx + 1}. **${issue.name}**`);
-        if (issue.description)
-          lines.push(`   - Description: ${issue.description}`);
-        if (issue.severity) lines.push(`   - Severity: ${issue.severity}`);
-        if (issue.line) lines.push(`   - Line: ${issue.line}`);
+        lines.push(`${idx + 1}. **${issue.rule}** (\`${issue.id}\`)\n`);
+        if (issue.description) {
+          lines.push(`   **Summary:** ${issue.description}\n`);
+        }
+        if (issue.severity) {
+          const severityBadge = issue.severity === "error" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
+          lines.push(`   **Severity:** ${severityBadge} ${issue.severity.toUpperCase()}\n`);
+        }
+        if (issue.location.affectedLines.start) {
+          const { start, end } = issue.location.affectedLines;
+          lines.push(`   **Location:** Line${end && end !== start ? `s` : ""} ${start}${end && end !== start ? `-${end}` : ""}\n`);
+        }
+        if (issue.extendedDescription) {
+          lines.push(`   **Details:**\n`);
+          lines.push(`   > ${issue.extendedDescription.split("\n").join("\n   > ")}\n`);
+        }
+        if (issue.mitigation) {
+          lines.push(`   **Remediation:** ${issue.mitigation}\n`);
+        }
         lines.push("");
       });
     }
@@ -237,10 +291,22 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult) {
     "\n## Scan Information\n",
     `- **Scanned Directory:** ${repoRoot}`,
     `- **CodeQL Database:** ${dbDir}`,
-    "- **Analysis Type:** JavaScript Security Scan",
+    `- **Analysis Type:** ${languageLabel} Security Scan`,
   );
 
   writeFileSync(mdPath, lines.join("\n"), "utf8");
+}
+
+function buildMitigationSuggestion(severity) {
+  if (severity === "error") {
+    return "Review the vulnerable code path and apply the recommended CodeQL fix before release.";
+  }
+
+  if (severity === "warning") {
+    return "Inspect the affected line and prefer a safer API or additional validation.";
+  }
+
+  return "Validate the surrounding logic and apply the appropriate CodeQL guidance.";
 }
 
 // ---------------------------------------------------------------------------
@@ -256,13 +322,36 @@ function writeMarkdownReport(repoRoot, dbDir, scanResult) {
 function ensureGitignoreEntry(repoRoot) {
   const gitignorePath = join(repoRoot, ".gitignore");
   const entry = ".qlscan-cache/";
+  let currentContent = "";
 
-  if (existsSync(gitignorePath)) {
-    const lines = readFileSync(gitignorePath, "utf8").split(/\r?\n/);
-    if (lines.some((line) => line.trim() === entry)) return;
-    appendFileSync(gitignorePath, `\n${entry}\n`, "utf8");
-  } else {
-    writeFileSync(gitignorePath, `${entry}\n`, "utf8");
+  try {
+    currentContent = readFileSync(gitignorePath, "utf8");
+  } catch (error) {
+    if (!error || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  if (currentContent.split(/\r?\n/).some((line) => line.trim() === entry)) {
+    return;
+  }
+
+  const normalizedContent = currentContent.length > 0 && !currentContent.endsWith("\n")
+    ? `${currentContent}\n`
+    : currentContent;
+  const updatedContent = `${normalizedContent}${entry}\n`;
+  const tempDir = mkdtempSync(join(dirname(gitignorePath), ".gitignore-"));
+  const tempPath = join(tempDir, ".gitignore");
+
+  try {
+    writeFileSync(tempPath, updatedContent, "utf8");
+    renameSync(tempPath, gitignorePath);
+  } finally {
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup.
+    }
   }
 }
 
@@ -299,14 +388,19 @@ function safeUnlink(filePath) {
  *
  * @param {string} repoRoot  - Repository root.
  * @param {number} total     - Total number of issues found.
+ * @param {string} languageLabel - Human-readable language label.
  */
-function printSummary(repoRoot, total) {
+function printSummary(repoRoot, total, languageLabel) {
   const reportPath = join(repoRoot, "codeql-results.md");
   if (total === 0) {
-    console.log(chalk.green("✔  No vulnerabilities detected by CodeQL."));
+    console.log(
+      chalk.green(`✔  No vulnerabilities detected by CodeQL for ${languageLabel}.`),
+    );
   } else {
     console.log(
-      chalk.yellow(`\n⚠  ${total} vulnerability(ies) found by CodeQL.`),
+      chalk.yellow(
+        `\n⚠  ${total} vulnerability(ies) found by CodeQL for ${languageLabel}.`,
+      ),
     );
   }
   console.log(chalk.blue(`📄  Detailed report saved to ${reportPath}`));

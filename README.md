@@ -1,10 +1,10 @@
 # QLScanner
 
-A cross-platform CLI (Node.js) that bundles and manages CodeQL for pre-commit scanning of JavaScript.
+A hybrid Node.js package that bundles and manages CodeQL for local CLI use and HTTP API integration.
 
 ## Overview
 
-QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis into your JavaScript/TypeScript development workflow. It automatically manages CodeQL installation, query packages, and provides clear, actionable security reports.
+QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis into your JavaScript/TypeScript, Python, Java, C#, and Go development workflow. It automatically manages CodeQL installation, query packages, and provides clear, actionable security reports through both a local CLI and a versioned HTTP API.
 
 ## Features
 
@@ -15,26 +15,89 @@ QLScanner is a zero-setup security scanning tool that integrates CodeQL analysis
 - Pre-commit integration ready
 - Optimized performance with multi-threading
 - Uses official CodeQL security and quality query suite
+- Dual execution model: CLI for local use and API for external integrations
+- Primary language selection is explicit for both CLI and API requests
+- CodeQL can be used from PATH or managed by QLScanner with update support
 
 ## Installation
 
 ```bash
-npm install -g qlscan
+npm install -g qlscanner
 ```
+
+The package also exposes the shorter `qlscan` command as a CLI alias.
 
 ## Usage
 
 Run a security scan in your JavaScript/TypeScript project:
 
 ```bash
-qlscan scan
+qlscanner scan
 ```
+
+The CLI will ask you to choose the primary language before the scan starts.
+
+You can also run custom CodeQL queries alongside the default query suite for the selected language:
+
+```bash
+qlscanner scan --language javascript --queries ./test/queries/javascript/js-eval-call.ql --queries ./test/queries/javascript/js-innerhtml-assignment.ql --queries-mode append
+```
+
+Use `--queries-mode replace` if you want the custom queries to run instead of the default suite.
 
 The tool will:
 1. Set up CodeQL if not already installed
 2. Download and manage required query packages
 3. Create and analyze a CodeQL database
 4. Generate a detailed security report in your project root
+
+### HTTP API
+
+Start the versioned HTTP API server for external integrations:
+
+```bash
+qlscanner serve --port 3000 --host 127.0.0.1
+```
+
+Available endpoints:
+
+```text
+GET  /api/v1/health
+GET  /api/v1/scans
+GET  /api/v1/options
+POST /api/v1/scans
+GET  /api/v1/scans/:id
+GET  /api/v1/scans/:id/report
+```
+
+All JSON endpoints return a common envelope with the shape `{ "success": boolean, "data": Array }`.
+
+`GET /api/v1/options` returns the supported languages, CodeQL modes, and custom query execution modes. `POST /api/v1/scans` requires a `language` field and accepts optional `codeqlMode`, `customQueries`, and `customQueriesMode` fields. `GET /api/v1/scans/:id/report` returns the structured findings array, including severity, affected lines, and mitigation guidance.
+
+Create a scan from an external client:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/scans \
+	-H 'content-type: application/json' \
+	-d '{"repositoryRoot":"/path/to/repo","language":"javascript","codeqlMode":"managed","customQueries":["./test/queries/javascript/js-eval-call.ql","./test/queries/javascript/js-innerhtml-assignment.ql"],"customQueriesMode":"append"}'
+```
+
+If `customQueriesMode` is set to `append`, QLScanner runs the default suite for the selected language and then applies the custom queries. If it is set to `replace`, only the custom queries are executed.
+
+### Programmatic Usage
+
+The package can also be imported directly by third-party tools and custom pipelines:
+
+```js
+import {
+	createApiServer,
+	createScanService,
+	getLanguageProfile,
+	runScan,
+} from "qlscanner";
+
+// TODO: wire the exported primitives into your own integration surface.
+```
 
 ## Requirements
 

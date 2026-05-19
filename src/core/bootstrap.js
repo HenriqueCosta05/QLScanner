@@ -18,6 +18,7 @@ import chalk from "chalk";
 import AdmZip from "adm-zip";
 import { execFileSync } from "child_process";
 import { Transform } from "stream";
+import which from "which";
 
 /** Absolute path to the directory where CodeQL is installed. */
 const CODEQL_INSTALL_DIR = join(homedir(), ".qlscan", "codeql");
@@ -37,20 +38,65 @@ const CODEQL_CLI_PATH = join(
  * Ensures the CodeQL CLI is installed and executable.
  * Downloads and extracts it from GitHub Releases if it is missing or corrupt.
  *
+ * @param {object} [options]
+ * @param {string} [options.installMode] - `managed`, `installed`, or `update`.
+ * @param {(question: string) => Promise<string>} [options.prompt] - Prompt helper for interactive choices.
  * @returns {Promise<string>} The absolute path to the `codeql` binary.
  */
-export async function ensureCodeQL() {
-  if (isCodeQLHealthy()) {
+export async function ensureCodeQL(options = {}) {
+  const installMode = options.installMode ?? "managed";
+  const prompt = typeof options.prompt === "function" ? options.prompt : null;
+  const installedCodeQL = findSystemCodeQL();
+
+  if (installMode === "installed") {
+    if (installedCodeQL) {
+      return installedCodeQL;
+    }
+
+    throw new Error(
+      "Requested the installed CodeQL binary, but none was found in PATH.",
+    );
+  }
+
+  if (installMode !== "update" && isCodeQLHealthy()) {
     return CODEQL_CLI_PATH;
   }
 
-  const version = await resolveLatestCodeQLVersion();
-  await downloadAndExtractCodeQL(version);
+  if (installedCodeQL && installMode !== "update") {
+    if (prompt) {
+      const answer = await prompt(
+        `CodeQL is already installed at ${installedCodeQL}. Use it instead of downloading a managed copy? [Y/n]: `,
+      );
 
-  writeFileSync(join(CODEQL_INSTALL_DIR, "version.txt"), version, "utf8");
-  console.log(chalk.green("✔  CodeQL installed successfully."));
+      if (/^n(o)?$/i.test(answer.trim())) {
+        return await reinstallManagedCodeQL();
+      }
+    }
 
-  return CODEQL_CLI_PATH;
+    return installedCodeQL;
+  }
+
+  if (installMode === "update" && prompt && isCodeQLHealthy()) {
+    const answer = await prompt(
+      "A managed CodeQL installation already exists. Update it to the latest version? [Y/n]: ",
+    );
+
+    if (!/^y(es)?$/i.test(answer.trim())) {
+      return CODEQL_CLI_PATH;
+    }
+  }
+
+  if (prompt && !installedCodeQL && !isCodeQLHealthy()) {
+    const answer = await prompt(
+      "No CodeQL installation was found. Install the QLScanner-managed version now? [Y/n]: ",
+    );
+
+    if (!/^y(es)?$/i.test(answer.trim())) {
+      throw new Error("CodeQL installation was cancelled by the user.");
+    }
+  }
+
+  return await reinstallManagedCodeQL();
 }
 
 // ---------------------------------------------------------------------------
@@ -74,19 +120,50 @@ function isCodeQLHealthy() {
   }
 }
 
+function findSystemCodeQL() {
+  try {
+    const codeqlPath = which.sync("codeql", { nothrow: true });
+
+    if (!codeqlPath) {
+      return null;
+    }
+
+    execFileSync(codeqlPath, ["--version"], { stdio: "ignore" });
+    return codeqlPath;
+  } catch {
+    return null;
+  }
+}
+
+async function reinstallManagedCodeQL() {
+  const version = await resolveLatestCodeQLVersion(true);
+  await downloadAndExtractCodeQL(version);
+
+  writeFileSync(join(CODEQL_INSTALL_DIR, "version.txt"), version, "utf8");
+  console.log(chalk.green("✔  CodeQL installed successfully."));
+
+  return CODEQL_CLI_PATH;
+}
+
 /**
  * Downloads the CodeQL bundle for the current platform and extracts it.
  *
  * @param {string} version - The CodeQL bundle version to download.
  */
 async function downloadAndExtractCodeQL(version) {
+  const safeVersion = normalizeCodeQLVersion(version);
+
+  if (!safeVersion) {
+    throw new Error(`Invalid CodeQL version: ${version}`);
+  }
+
   const platform = process.platform === "win32" ? "win64" : "linux64";
   const ext = platform === "win64" ? "zip" : "tar.gz";
   const bundleName = `codeql-bundle-${platform}.${ext}`;
-  const url = `https://github.com/github/codeql-action/releases/download/codeql-bundle-v${version}/${bundleName}`;
+  const url = `https://github.com/github/codeql-action/releases/download/codeql-bundle-v${safeVersion}/${bundleName}`;
   const tmpFile = join(tmpdir(), bundleName);
 
-  console.log(chalk.blue(`⬇  Downloading CodeQL CLI v${version}…`));
+  console.log(chalk.blue(`⬇  Downloading CodeQL CLI v${safeVersion}…`));
   mkdirSync(CODEQL_INSTALL_DIR, { recursive: true });
 
   try {
@@ -219,11 +296,19 @@ function fixExecPermissionsRecursively(dir) {
  *
  * @returns {Promise<string>} e.g. `"2.19.3"`
  */
-async function resolveLatestCodeQLVersion() {
+async function resolveLatestCodeQLVersion(forceRefresh = false) {
   const cacheFile = join(CODEQL_INSTALL_DIR, "version.txt");
 
-  if (existsSync(cacheFile)) {
-    return readFileSync(cacheFile, "utf8").trim();
+  if (!forceRefresh && existsSync(cacheFile)) {
+    const cachedVersion = normalizeCodeQLVersion(readFileSync(cacheFile, "utf8").trim());
+
+    if (cachedVersion) {
+      return cachedVersion;
+    }
+
+    console.warn(
+      chalk.yellow("⚠  Ignoring invalid cached CodeQL version and refreshing from GitHub…"),
+    );
   }
 
   console.log(chalk.gray("🔍  Fetching latest CodeQL version from GitHub…"));
@@ -240,7 +325,9 @@ async function resolveLatestCodeQLVersion() {
   }
 
   const json = await res.json();
-  const version = (json.tag_name ?? "").replace(/^codeql-bundle-v/, "");
+  const version = normalizeCodeQLVersion(
+    (json.tag_name ?? "").replace(/^codeql-bundle-v/, ""),
+  );
 
   if (!version) {
     throw new Error("Unable to parse CodeQL version from GitHub API response.");
@@ -263,6 +350,18 @@ function safeUnlink(filePath) {
   } catch {
     // Best-effort cleanup.
   }
+}
+
+/**
+ * Normalizes and validates a CodeQL bundle version string.
+ *
+ * @param {string} version
+ * @returns {string | null}
+ */
+function normalizeCodeQLVersion(version) {
+  const trimmedVersion = version.trim();
+
+  return /^\d+\.\d+\.\d+$/.test(trimmedVersion) ? trimmedVersion : null;
 }
 
 /**
