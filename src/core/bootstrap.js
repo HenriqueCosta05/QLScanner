@@ -151,13 +151,19 @@ async function reinstallManagedCodeQL() {
  * @param {string} version - The CodeQL bundle version to download.
  */
 async function downloadAndExtractCodeQL(version) {
+  const safeVersion = normalizeCodeQLVersion(version);
+
+  if (!safeVersion) {
+    throw new Error(`Invalid CodeQL version: ${version}`);
+  }
+
   const platform = process.platform === "win32" ? "win64" : "linux64";
   const ext = platform === "win64" ? "zip" : "tar.gz";
   const bundleName = `codeql-bundle-${platform}.${ext}`;
-  const url = `https://github.com/github/codeql-action/releases/download/codeql-bundle-v${version}/${bundleName}`;
+  const url = `https://github.com/github/codeql-action/releases/download/codeql-bundle-v${safeVersion}/${bundleName}`;
   const tmpFile = join(tmpdir(), bundleName);
 
-  console.log(chalk.blue(`⬇  Downloading CodeQL CLI v${version}…`));
+  console.log(chalk.blue(`⬇  Downloading CodeQL CLI v${safeVersion}…`));
   mkdirSync(CODEQL_INSTALL_DIR, { recursive: true });
 
   try {
@@ -294,7 +300,15 @@ async function resolveLatestCodeQLVersion(forceRefresh = false) {
   const cacheFile = join(CODEQL_INSTALL_DIR, "version.txt");
 
   if (!forceRefresh && existsSync(cacheFile)) {
-    return readFileSync(cacheFile, "utf8").trim();
+    const cachedVersion = normalizeCodeQLVersion(readFileSync(cacheFile, "utf8").trim());
+
+    if (cachedVersion) {
+      return cachedVersion;
+    }
+
+    console.warn(
+      chalk.yellow("⚠  Ignoring invalid cached CodeQL version and refreshing from GitHub…"),
+    );
   }
 
   console.log(chalk.gray("🔍  Fetching latest CodeQL version from GitHub…"));
@@ -311,7 +325,9 @@ async function resolveLatestCodeQLVersion(forceRefresh = false) {
   }
 
   const json = await res.json();
-  const version = (json.tag_name ?? "").replace(/^codeql-bundle-v/, "");
+  const version = normalizeCodeQLVersion(
+    (json.tag_name ?? "").replace(/^codeql-bundle-v/, ""),
+  );
 
   if (!version) {
     throw new Error("Unable to parse CodeQL version from GitHub API response.");
@@ -334,6 +350,18 @@ function safeUnlink(filePath) {
   } catch {
     // Best-effort cleanup.
   }
+}
+
+/**
+ * Normalizes and validates a CodeQL bundle version string.
+ *
+ * @param {string} version
+ * @returns {string | null}
+ */
+function normalizeCodeQLVersion(version) {
+  const trimmedVersion = version.trim();
+
+  return /^\d+\.\d+\.\d+$/.test(trimmedVersion) ? trimmedVersion : null;
 }
 
 /**

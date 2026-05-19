@@ -64,6 +64,7 @@ export function createScanService(options = {}) {
         status: "queued",
         totalIssues: null,
         report: null,
+        progress: { stage: "queued", message: "Waiting to start...", percentage: 0 },
         reportPath: join(repoRoot, "codeql-results.md"),
         createdAt: new Date().toISOString(),
         startedAt: null,
@@ -90,15 +91,34 @@ export function createScanService(options = {}) {
   async function runJob(job) {
     job.status = "running";
     job.startedAt = new Date().toISOString();
+    job.progress = { stage: "queued", message: "Initializing scan...", percentage: 0 };
 
     try {
+      job.progress = { stage: "bootstrap", message: "Ensuring CodeQL is ready...", percentage: 5 };
       const codeqlPath = await ensureCodeQL({
         installMode: job.codeqlMode,
       });
+
       const scanResult = await runScan(codeqlPath, job.repositoryRoot, {
         language: job.language,
         customQueries: job.customQueries,
         customQueriesMode: job.customQueriesMode,
+        onProgress: (progress) => {
+          const stageProgress = {
+            preparing: 10,
+            downloading: 20,
+            database: 40,
+            analyzing: 60,
+            parsing: 80,
+            reporting: 90,
+            completed: 100,
+          };
+          job.progress = {
+            stage: progress.stage,
+            message: progress.message,
+            percentage: stageProgress[progress.stage] ?? 50,
+          };
+        },
       });
 
       job.totalIssues = scanResult.total;
@@ -108,10 +128,12 @@ export function createScanService(options = {}) {
       };
       job.status = "completed";
       job.finishedAt = new Date().toISOString();
+      job.progress = { stage: "completed", message: "Scan completed successfully", percentage: 100 };
     } catch (error) {
       job.status = "failed";
       job.error = error?.message ?? String(error);
       job.finishedAt = new Date().toISOString();
+      job.progress = { stage: "failed", message: `Scan failed: ${error?.message ?? String(error)}`, percentage: 0 };
     }
   }
 }
@@ -122,6 +144,7 @@ function snapshotJob(job) {
     repositoryRoot: job.repositoryRoot,
     status: job.status,
     totalIssues: job.totalIssues,
+    progress: job.progress,
     report: job.report,
     reportPath: job.reportPath,
     createdAt: job.createdAt,
