@@ -15,7 +15,6 @@ import fetch from "node-fetch";
 import { pipeline } from "stream/promises";
 import cliProgress from "cli-progress";
 import chalk from "chalk";
-import AdmZip from "adm-zip";
 import { execFileSync } from "child_process";
 import { Transform } from "stream";
 import which from "which";
@@ -158,8 +157,7 @@ async function downloadAndExtractCodeQL(version) {
   }
 
   const platform = process.platform === "win32" ? "win64" : "linux64";
-  const ext = platform === "win64" ? "zip" : "tar.gz";
-  const bundleName = `codeql-bundle-${platform}.${ext}`;
+  const bundleName = `codeql-bundle-${platform}.tar.gz`;
   const url = `https://github.com/github/codeql-action/releases/download/codeql-bundle-v${safeVersion}/${bundleName}`;
   const tmpFile = join(tmpdir(), bundleName);
 
@@ -175,11 +173,7 @@ async function downloadAndExtractCodeQL(version) {
 
   console.log(chalk.blue("📦  Extracting CodeQL…"));
   try {
-    if (ext === "zip") {
-      new AdmZip(tmpFile).extractAllTo(CODEQL_INSTALL_DIR, true);
-    } else {
-      await extractTarGz(tmpFile, CODEQL_INSTALL_DIR);
-    }
+    await extractTarGz(tmpFile, CODEQL_INSTALL_DIR);
   } catch (err) {
     console.error(chalk.red("✖  Extraction failed:"), err.message);
     throw err;
